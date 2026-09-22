@@ -1,0 +1,121 @@
+/* Development-only integration test. No test dependencies are shipped to users.
+   node tests/workflow.cjs [absolute/path/to/playwright] */
+const assert = require('node:assert/strict');
+const fs = require('node:fs/promises');
+const path = require('node:path');
+const http = require('node:http');
+const {chromium} = require(process.argv[2] || 'playwright');
+const root = path.resolve(__dirname, '..');
+const mime = {'.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.svg': 'image/svg+xml'};
+const server = http.createServer(async (req, res) => {
+  try {
+    const relative = decodeURIComponent(new URL(req.url, 'http://localhost').pathname).replace(/^\/(field-notebook|other-project)\//, '');
+    const target = path.resolve(root, relative || 'index.html');
+    if (!target.startsWith(root + path.sep)) throw Error('outside root');
+    res.setHeader('Content-Type', mime[path.extname(target)] || 'application/octet-stream');
+    res.end(await fs.readFile(target));
+  } catch {res.writeHead(404); res.end('Not found');}
+});
+const log = message => console.log(`PASS ${message}`);
+(async () => {
+  await fs.mkdir(path.join(root, 'test-results'), {recursive: true});
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${server.address().port}`, url = `${base}/field-notebook/`;
+  const browser = await chromium.launch({channel: 'msedge', headless: true});
+  try {
+    const context = await browser.newContext({viewport: {width: 390, height: 844}, geolocation: {latitude: 46.512345, longitude: 11.312345, accuracy: 8}, permissions: ['geolocation'], acceptDownloads: true});
+    const page = await context.newPage(), errors = [], external = [];
+    page.on('pageerror', error => errors.push(error.message));
+    page.on('request', req => {if (!req.url().startsWith(base) && !/^(blob|data):/.test(req.url())) external.push(req.url());});
+    const saved = () => page.waitForFunction(() => document.querySelector('#save-status').textContent === 'Saved on this device');
+    const back = async () => {await page.locator('#back').click(); await page.locator('#home').waitFor({state: 'visible'});};
+    await page.goto(url);
+    await page.waitForFunction(() => document.querySelector('#offline-status').textContent === 'Ready for offline use');
+    await page.locator('#trip-title').fill('Dolomites — test trip'); await saved();
+    await page.locator('#trip-date').fill('2026-09-22'); await saved();
+    await page.locator('#new-stop').click();
+    await page.locator('#stop-title').fill('Limestone contact');
+    await page.locator('#stop-notes').fill('Bedded limestone.\nDip 35° NE.\nUnicode: ä ± → and <script>literal text</script>.');
+    await page.waitForFunction(() => document.querySelector('#gps-status').textContent === 'Location saved'); await saved();
+    assert.match(await page.locator('#gps-details').innerText(), /46\.512345/);
+    const photo = await page.evaluate(() => {const c = document.createElement('canvas'); c.width = 3200; c.height = 2400; const x = c.getContext('2d'); x.fillStyle = '#b89e72'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#334b32'; x.fillRect(400, 400, 1200, 400); return c.toDataURL('image/png').split(',')[1];});
+    await page.locator('#photo-file').setInputFiles({name: 'outcrop.png', mimeType: 'image/png', buffer: Buffer.from(photo, 'base64')});
+    await page.waitForFunction(() => document.querySelector('#photo-count').textContent === '1');
+    await page.locator('.photo input').fill('Contact, looking northeast'); await saved();
+    await page.locator('.preview').click(); assert.equal(await page.locator('#photo-view').isVisible(), true); await page.locator('#close-photo').click();
+    await page.reload(); await page.locator('.stop').click(); await page.locator('#editor').waitFor({state: 'visible'});
+    assert.equal(await page.locator('#stop-title').inputValue(), 'Limestone contact');
+    assert.match(await page.locator('#stop-notes').inputValue(), /Dip 35° NE/);
+    assert.equal(await page.locator('.photo input').inputValue(), 'Contact, looking northeast');
+    const dimensions = await page.locator('.photo img').evaluate(async img => {await img.decode(); return [img.naturalWidth, img.naturalHeight];});
+    assert.deepEqual(dimensions, [2000, 1500]); log('GPS, autosave, photo compression/caption/view and reload persistence');
+    await back();
+    await context.setOffline(true); await page.reload();
+    await page.locator('#new-stop').click(); await page.locator('#stop-title').fill('Fold hinge'); await page.locator('#stop-notes').fill('Offline observation at Stop 2.'); await saved();
+    await page.locator('#photo-file').setInputFiles(path.join(root, 'icons/icon-192.png'));
+    await page.waitForFunction(() => document.querySelector('#photo-count').textContent === '1');
+    await back();
+    assert.equal(await page.locator('.stop').count(), 2); assert.equal(await page.locator('#network').innerText(), 'Offline');
+    const downloadEvent = page.waitForEvent('download'); await page.locator('#export').click(); const download = await downloadEvent;
+    const backup = path.join(root, 'test-results', 'FieldTrip_2026-09-22.zip'); await download.saveAs(backup);
+    const inspected = await page.evaluate(async () => {
+      const [t, s, p] = await snapshot();
+      return {title: t.title, stops: s.length, photos: p.length};
+    });
+    assert.deepEqual(inspected, {title: 'Dolomites — test trip', stops: 2, photos: 2});
+    await page.screenshot({path: path.join(root, 'test-results/home-phone.png'), fullPage: true});
+    log('offline restart, new stop, photo and ZIP download on project subpath');
+    const raw = await fs.readFile(backup);
+    const archive = await page.evaluate(async base64 => {
+      const bytes = Uint8Array.from(atob(base64), c => c.charCodeAt(0)), files = await FieldZip.read(new Blob([bytes]));
+      return {names: [...files.keys()], json: JSON.parse(await files.get('fieldtrip/fieldtrip.json').text()), markdown: await files.get('fieldtrip/fieldtrip.md').text()};
+    }, raw.toString('base64'));
+    assert.equal(archive.json.stops.length, 2); assert.equal(archive.json.stops[0].photos[0].caption, 'Contact, looking northeast');
+    assert.match(archive.markdown, /Stop 01 — Limestone contact/); assert.match(archive.markdown, /Stop 02 — Fold hinge/);
+    assert(archive.names.includes('fieldtrip/photos/stop_01_001.jpg')); assert(archive.names.includes('fieldtrip/photos/stop_02_001.png'));
+    log('JSON, Markdown, Unicode, GPS metadata and both image formats in export');
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#import-file').setInputFiles(backup);
+    await page.waitForFunction(() => document.querySelector('#trip-select').options.length === 2);
+    assert.equal(await page.locator('.stop').count(), 2); await page.locator('.stop').first().click(); await page.locator('#editor').waitFor({state: 'visible'});
+    assert.equal(await page.locator('.photo input').inputValue(), 'Contact, looking northeast');
+    await page.screenshot({path: path.join(root, 'test-results/editor-phone.png'), fullPage: true});
+    log('complete ZIP restore creates separate trip and preserves photo/caption');
+    await back();
+    page.once('dialog', dialog => dialog.accept());
+    await page.locator('#import-file').setInputFiles({name: 'fieldtrip.json', mimeType: 'application/json', buffer: Buffer.from(JSON.stringify(archive.json))});
+    await page.waitForFunction(() => document.querySelector('#trip-select').options.length === 3);
+    await page.locator('.stop').first().click(); await page.locator('#editor').waitFor({state: 'visible'}); await page.waitForFunction(() => document.querySelector('#photo-count').textContent === '0'); assert.match(await page.locator('#stop-notes').inputValue(), /Photos not restored from JSON/); assert.equal(await page.locator('.photo').count(), 0);
+    page.once('dialog', dialog => dialog.dismiss()); await page.locator('#delete-stop').click(); assert.equal(await page.locator('#editor').isVisible(), true);
+    page.once('dialog', dialog => dialog.accept()); await page.locator('#delete-stop').click(); await page.locator('#home').waitFor({state: 'visible'}); assert.equal(await page.locator('.stop').count(), 1);
+    await page.locator('#new-stop').click(); await page.locator('#editor').waitFor({state: 'visible'}); assert.equal(await page.locator('#stop-heading').innerText(), 'STOP 03');
+    log('JSON-only restore warning, deletion confirmation and non-reused stop numbers');
+    // Simulate a transient quota failure; the failed write must remain queued.
+    await page.evaluate(() => {window.originalPatch = patch; window.failOnce = true; patch = async (...args) => {if (window.failOnce) {window.failOnce = false; throw new DOMException('Quota simulation', 'QuotaExceededError');} return window.originalPatch(...args);};});
+    await page.locator('#stop-notes').fill('Recover this unsaved note'); await page.locator('#retry-save').waitFor();
+    await page.locator('#retry-save').click(); await saved(); await page.reload(); await page.locator('.stop').last().click(); await page.locator('#editor').waitFor({state: 'visible'});
+    assert.equal(await page.locator('#stop-notes').inputValue(), 'Recover this unsaved note'); log('failed autosave reports error and retry persists pending notes');
+    await back();
+    const damaged = Buffer.from(raw); damaged[70] ^= 1;
+    await page.locator('#import-file').setInputFiles({name: 'damaged.zip', mimeType: 'application/zip', buffer: damaged});
+    await page.waitForFunction(() => !document.querySelector('#error').hidden);
+    assert.match(await page.locator('#error').innerText(), /checksum|ZIP/); assert.equal(await page.locator('#trip-select option').count(), 3);
+    log('damaged backup rejected without partial import');
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+    await context.setOffline(false);
+    const other = await context.newPage(); await other.goto(`${base}/other-project/`);
+    await other.waitForFunction(() => document.querySelector('#offline-status').textContent === 'Ready for offline use');
+    assert.equal(await other.locator('.stop').count(), 0);
+    await context.setOffline(true); await page.reload(); await page.locator('#home').waitFor({state: 'visible'}); assert.equal(await page.locator('.stop').count(), 2);
+    await page.close(); const reopened = await context.newPage(); await reopened.goto(url); await reopened.locator('#home').waitFor({state: 'visible'}); assert.equal(await reopened.locator('.stop').count(), 2);
+    log('separate project database/cache, offline reopening after closing tab');
+    assert.deepEqual(errors, []); assert.deepEqual(external, []); log('no runtime errors or external requests; phone layout has no horizontal overflow');
+    await context.close();
+    const deniedContext = await browser.newContext(); const denied = await deniedContext.newPage();
+    await denied.addInitScript(() => {navigator.geolocation.getCurrentPosition = (_ok, fail) => fail({code: 1, message: 'denied'});});
+    await denied.goto(url); await denied.locator('#new-stop').click(); await denied.locator('#stop-notes').fill('Notes still work without GPS.');
+    await denied.waitForFunction(() => document.querySelector('#gps-status').textContent.includes('GPS unavailable'));
+    await denied.waitForFunction(() => document.querySelector('#save-status').textContent === 'Saved on this device');
+    log('GPS denial handled without blocking note entry'); await deniedContext.close();
+  } finally {await browser.close();}
+})().catch(error => {console.error(error); process.exitCode = 1;}).finally(() => server.close());
