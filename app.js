@@ -226,6 +226,7 @@ async function renderPhotos() {
     preview.onclick = () => { $('large-photo').src = url; $('large-caption').textContent = caption.value; $('photo-view').showModal(); };
     const label = document.createElement('label'); label.textContent = 'Caption (optional)'; label.htmlFor = `caption-${photo.id}`;
     const caption = document.createElement('input'); caption.id = label.htmlFor; caption.value = photo.caption; caption.maxLength = 2000;
+    caption.lang = 'de'; caption.spellcheck = true; caption.setAttribute('autocorrect', 'on'); caption.setAttribute('autocapitalize', 'sentences');
     caption.oninput = () => { const value = caption.value; enqueue(() => patch('photos', photo.id, {caption: value})); };
     const remove = document.createElement('button'); remove.className = 'danger'; remove.textContent = 'Delete photo';
     remove.onclick = async () => {

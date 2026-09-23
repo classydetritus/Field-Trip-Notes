@@ -22,7 +22,7 @@
   <section id="home" hidden>
     <label for="trip-select">Field trip</label><select id="trip-select"></select>
     <div class="row"><button id="new-trip" class="secondary">+ New field trip</button><button id="install" hidden>Install app</button></div>
-    <label for="trip-title">Field trip title</label><input id="trip-title" placeholder="e.g. Dolomites — sedimentary geology" maxlength="300">
+    <label for="trip-title">Field trip title</label><input id="trip-title" lang="de" spellcheck="true" autocorrect="on" autocapitalize="sentences" placeholder="e.g. Dolomites — sedimentary geology" maxlength="300">
     <label for="trip-date">Day / date</label><input id="trip-date" type="date">
     <div class="section-heading"><h2>Stops</h2><span id="stop-count"></span></div>
     <button id="new-stop" class="primary wide">+ NEW STOP</button>
@@ -32,8 +32,9 @@
   <section id="editor" hidden>
     <button id="back" class="secondary">← All stops</button>
     <div class="section-heading"><h1 id="stop-heading"></h1><span id="stop-date" class="hint"></span></div>
-    <label for="stop-title">Stop title</label><input id="stop-title" maxlength="300" placeholder="What is this locality?">
-    <label for="stop-notes">Notes</label><textarea id="stop-notes" placeholder="Lithology, structures, contacts, interpretations, questions…"></textarea>
+    <label for="stop-title">Stop title</label><input id="stop-title" lang="de" spellcheck="true" autocorrect="on" autocapitalize="sentences" maxlength="300" placeholder="What is this locality?">
+    <label for="stop-notes">Notes</label><textarea id="stop-notes" lang="de" spellcheck="true" autocorrect="on" autocapitalize="sentences" aria-describedby="typing-hint" placeholder="Lithology, structures, contacts, interpretations, questions…"></textarea>
+    <p id="typing-hint" class="hint">Writing in German and English? Enable both languages in your Android keyboard for suggestions. German is the default writing language; corrections depend on your keyboard settings.</p>
     <section class="card"><h2>GPS location</h2><p id="gps-status" role="status"></p><dl id="gps-details"></dl><div class="row"><button id="retry-gps">Retry GPS</button><button id="copy-gps" class="secondary">Copy coordinates</button></div><p class="hint">GPS works without a map or internet; the phone still needs location permission and a satellite fix.</p></section>
     <section class="card"><div class="section-heading"><h2>Photos</h2><span id="photo-count"></span></div><button id="add-photo" class="primary wide">+ ADD PHOTO</button><div id="photo-choices" class="row" hidden><button id="take-photo">Take photo</button><button id="choose-photo" class="secondary">Choose images</button></div><input id="camera-file" type="file" accept="image/*" capture="environment" hidden><input id="photo-file" type="file" accept="image/*" multiple hidden><p id="photo-status" role="status"></p><div id="photos"></div></section>
     <button id="delete-stop" class="danger wide">Delete this stop</button>

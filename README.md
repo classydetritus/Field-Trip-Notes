@@ -55,6 +55,12 @@ Before fieldwork:
 
 GPS does not require an online map. It does require device location services and permission; a cold satellite fix without network assistance can take longer or fail indoors. Each attempt times out after roughly 30–35 seconds. Move outdoors and retry. Desktop testing cannot establish actual offline GPS or camera behavior on your phone.
 
+## German and English typing on Android
+
+The interface stays in English. Trip titles, stop titles, notes and photo captions declare German as their default text language and explicitly request spellchecking, autocorrection and sentence capitalization. These are browser/keyboard hints, not a built-in dictionary or a restriction on what you can write. Mixed German–English notes are saved exactly as entered; the app does not translate or rewrite them.
+
+For bilingual suggestions, enable German and English in your Android keyboard. In Gboard, open keyboard Settings → Languages and add both languages; enable multilingual typing if offered. See Google's [Gboard language instructions](https://support.google.com/gboard/answer/7068494?hl=en). The website cannot install dictionaries or force bilingual correction. Suggestions and corrections depend on the keyboard, browser and device settings; check actual typing on your Android phone, including offline. Geological terms may still need manual correction or addition to your keyboard's personal dictionary.
+
 ## Saving and storage
 
 Trips, stops, notes, captions and image Blobs are in **IndexedDB** in your current browser profile, under this site's origin and project path. Nothing uses localStorage. Photos are resized only when larger than 2000 px on the long side, over 3 MB, or needing format conversion. Resized images are JPEG quality 0.88 with orientation handled by the browser; smaller supported originals remain unchanged. Resize conversion removes original EXIF metadata and can flatten transparency. Unsupported phone formats such as HEIC may need conversion to JPEG first.
